@@ -1,75 +1,100 @@
-# India CPI Inflation Decomposition & MPC Policy Signal Detector
+# Supply vs. Demand Drivers of India's CPI Inflation (2015–2026): Implications for Monetary Policy Transmission
 
-An end-to-end econometric and machine learning pipeline to decompose Consumer Price Index (CPI) inflation dynamics in India (2015–2026) and analyze the Reserve Bank of India (RBI) Monetary Policy Committee (MPC) interest rate decision rules.
-
----
-
-## 📌 Project Overview
-Monetary policy transmission is highly sensitive to the *source* of inflation. Rate hikes are effective against demand-driven (core) inflation but impose growth costs without cooling supply-side shocks (like food or fuel spikes). 
-
-This project built a reproducible pipeline to:
-1. **Decompose CPI** into transient supply-side shocks (food/fuel) and persistent demand-side vectors (core) using Loess-based Seasonal-Trend decomposition (STL).
-2. **Model Causal Transmission** using Augmented Dickey-Fuller (ADF) stationarity and Granger Causality tests between core inflation lags and policy interest rates.
-3. **Analyze MPC Decisions** using an XGBoost Classifier with `TimeSeriesSplit` cross-validation to predict rate hikes, explained globally and locally with SHAP value Feature Importances.
-4. **Forecast Future Inflation Paths** 6 months out using a Prophet additive time series model.
-5. **Evaluate Policy Misattribution** by calculating how often rate hikes occurred during supply-shock (food-dominated) spikes.
+**Author:** Quantitative Monetary Policy Research Unit  
+**Date:** July 1, 2026  
 
 ---
 
-## 📂 Repository Structure
+### Executive Summary
+This policy brief evaluates the structural drivers of India’s Consumer Price Index (CPI) inflation and their historical interaction with the Reserve Bank of India’s (RBI) Monetary Policy Committee (MPC) repo rate decisions from 2015 to 2026. By isolating supply-side shocks (food and fuel) from demand-side pressures (core CPI) through STL decomposition, Granger causality, and explainable machine learning models (XGBoost + SHAP), we find that 62.5% of historical rate hikes were executed during supply-dominated inflation spikes. Note that this brief was revised after an internal statistical review: an initial Granger causality result suggesting the MPC's decisions are directly predicted by core inflation did not survive a stationarity correction, and a classifier intended to validate an empirical "core-anchored" decision rule showed no reliable predictive skill on held-out data (Section 3, Finding 3). The misattribution finding above is unaffected by these corrections and remains the paper's most robust empirical result. This paper outlines the transmission risks of cost-push inflation responses and presents a 6-month forecasting outlook with an empirically checked (not merely assumed) confidence interval.
+
+---
+
+### 1. Context & Policy Problem
+Monetary policy transmission in India faces a structural challenge: the CPI basket is heavily weighted toward food and beverages (45.86%) and fuel and light (6.84%), which are highly volatile and driven by supply-side shocks (e.g., monsoon variability, geopolitical energy disruptions). Traditional interest rate hikes are designed to cool aggregate demand (reflected in Core CPI). When rate hikes are deployed in response to headline inflation spikes driven purely by supply shocks, they impose severe economic growth costs (by raising borrowing costs for firms and consumers) without cooling the structural drivers of the price shock. Distinguishing between demand-driven and cost-push inflation is therefore the cornerstone of effective monetary policy.
+
+---
+
+### 2. Dataset & Methodology
+* **Inflation Data:** Monthly CPI component data from the Database on Indian Economy (DBIE) and Ministry of Statistics and Programme Implementation (MOSPI) spanning January 2013 to December 2025. 
+* **Policy Data:** Full history of the RBI MPC meetings and repo rate decisions (60 meetings) from October 2016 to June 2026.
+* **Methodology:** 
+  1. We computed Core CPI using official base-2012 weights ($\text{Core} = \text{General} - [0.4563 \times \text{Food} + 0.0666 \times \text{Fuel}]$).
+  2. We conducted Seasonal-Trend decomposition using Loess (STL) on Core CPI.
+  3. We tested each series (Core CPI, General CPI, Repo Rate) for stationarity via Augmented Dickey-Fuller, then ran Granger Causality tests on the differenced (stationary) series to verify the directional relationship without confounding by shared trends.
+  4. We trained an XGBoost classifier and a class-weighted logistic regression baseline with walk-forward `TimeSeriesSplit` cross-validation, evaluated via precision/recall/F1 (not accuracy alone, given class imbalance), and applied SHAP explainability to the final XGBoost fit to deconstruct the MPC's historical decision-making process.
+  5. We fit a Prophet additive time series model to forecast the 6-month forward core inflation path.
+
+---
+
+### 3. Key Findings
+
+#### Finding 1: Historical Inflation Epoc Heatmap Analysis
+Analysis of the monthly inflation heatmap below reveals clear cyclical patterns:
+
+![Core CPI Inflation Heatmap](../outputs/01_core_cpi_heatmap.png)
+*Figure 1: India Core CPI YoY inflation by month and year. Green cells fall below the RBI's 4% target; red cells are elevated.*
+
+* **The Post-COVID Supply Shock (2022–2023):** Core CPI YoY inflation remained persistently elevated above the RBI's 6% upper tolerance limit, driven by global supply chain gridlocks and commodity price spikes following the outbreak of the Russia-Ukraine war.
+* **The Food Spike (2019–2020):** General inflation spiked sharply due to domestic crop failures, while Core CPI remained relatively anchored (hovering between 4.0% and 5.0%), demonstrating a clear divergence between headline and core vectors.
+
+#### Finding 2: Rate Hike Misattribution (Supply-Shock Context)
+Our misattribution analysis of the 8 historical rate hikes executed by the MPC since October 2016 reveals that:
+
+![CPI Components vs. Repo Rate](../outputs/02_cpi_vs_repo_rate.png)
+*Figure 2: Headline, core, food, and fuel YoY inflation (top) against the RBI repo rate with hike/cut markers (bottom).*
+
+* **5 out of 8 hikes (62.5%)** were executed during periods where **Food inflation exceeded Core inflation** (e.g., May, June, August, and September of 2022, and February 2023). 
+* **Implication:** Tightening monetary policy in these cycles coincided heavily with supply-side food shocks. This creates a communication risk, as markets may interpret hikes as a direct response to transient food price spikes rather than persistent demand-side core trends.
+
+#### Finding 3: XGBoost Classifier & SHAP Explainability — Revised After Review
+
+**What we initially reported:** a final XGBoost model fit on all inflation indicators showed the MPC's decisions statistically driven by Core Inflation Lag 1 (`core_lag1`, mean |SHAP| = 0.0514) and current Core Inflation (`cpi_core_yoy`, mean |SHAP| = 0.0495), corroborated by a Granger causality test showing past Core CPI Granger-causing repo rate changes at Lag 1 ($p=0.0003$) and Lag 2 ($p=0.0030$).
+
+![SHAP Feature Importance](../outputs/06_shap_feature_importance.png)
+*Figure 3: Mean absolute SHAP values from the final XGBoost fit. Read alongside the caveat below — this model is fit on 100% of the data and shows signs of overfitting.*
+
+**What a stricter evaluation showed:** neither result holds up as evidence of a real, generalizable relationship.
+* **Granger causality:** Core CPI, General CPI, and the Repo Rate are all non-stationary series (ADF test, $p > 0.05$ for all three). Running Granger causality directly on non-stationary levels risks detecting a shared trend rather than real predictive causality. After differencing to stationarity, the significance disappears entirely (lag 1: $p=0.53$; lag 2: $p=0.83$; lags 3–5: all $p > 0.2$).
+* **Classifier skill:** evaluated with walk-forward `TimeSeriesSplit` and reported via precision/recall/F1 (rather than accuracy alone, which is misleading with only 13.8% of meetings being hikes), the XGBoost classifier predicts **zero hikes in every single test fold** (F1 = 0.000). A class-weighted logistic regression baseline performs marginally better (F1 = 0.089) but is unstable across folds.
+* **Why the SHAP numbers above are still reported, with a caveat:** the final model used to generate them is fit on 100% of the data and reaches 100% in-sample accuracy — consistent with overfitting on a dataset of only 8 positive examples. The SHAP values are a valid *descriptive* statement about what this specific (overfit) model leans on, but should not be read as evidence of the MPC's actual, validated decision process.
+
+* **Revised interpretation:** with only 8 rate hikes in the historical record, this dataset does not contain enough statistical power to confirm or rule out a core-inflation-driven reaction function via machine learning. The misattribution finding (Finding 2 above) remains the strongest evidence in this analysis, since it is a direct historical count rather than a model-dependent inference.
+
+---
+
+### 4. Inflation Forecasting Outlook (Jan–June 2026)
+The Prophet time series model predicts that Core CPI inflation will remain stable and well-anchored over the first half of 2026:
+
+![Prophet Core CPI Forecast](../outputs/04_prophet_forecast.png)
+*Figure 4: 6-month Core CPI YoY forecast with 90% interval. See the calibration caveat below — this interval is wider in practice than shown.*
+
+* **Forecasted Core CPI:** Projected to hover in a tight range between **4.15% (June 2026)** and **4.37% (February 2026)**.
+* **Uncertainty Bounds:** The 90% confidence intervals range from a lower bound of $2.61\%$ to an upper bound of $5.95\%$ — **however, a backtesting diagnostic (`cross_validation`) found this interval is overconfident at a 6-month horizon, with empirical coverage of only ~60% against the claimed 90%.** In practice, the true range of likely outcomes is wider than stated above; the point forecast (4.15%–4.37%) is the more reliable part of this projection.
+* **Policy Implications:** With the point forecast close to the 4% target and comfortably below the 6% upper limit, the MPC has directional room to consider a stable or accommodative rate stance, though the wider-than-stated uncertainty band means this should be treated as one input among several, not a precise commitment device.
 
 ```
-rbi_cpi_project/
-├── data/
-│   ├── cleaned_cpi.csv          # Clean monthly CPI series with computed core & trend
-│   └── processed_cpi_mpc.csv    # Merged dataset containing CPI inflation matched to MPC meetings
-├── raw_data/
-│   ├── CPI-Base-2012.xlsx       # Raw commodity-wise CPI index sheets (Base 2012=100)
-│   └── mpc_decisions.xlsx       # Raw RBI voting and repo rate announcement records
-├── notebooks/
-│   ├── 01_data_prep.ipynb       # Loading raw Excel files, cleaning, merging and lag calculations
-│   ├── 02_eda.ipynb             # Heatmaps, inflation component timelines, and correlations
-│   ├── 03_decomposition.ipynb   # STL decomposition, ADF tests, Granger causality, and misattribution
-│   └── 04_ai_model.ipynb        # Prophet forecasting, XGBoost rate hike classifier, and SHAP plots
-├── outputs/
-│   ├── 01_core_cpi_heatmap.png  # Month-Year core inflation trend heatmap
-│   ├── 02_cpi_vs_repo_rate.png  # Timeline of CPI components vs Repo Rate hikes/cuts
-│   ├── 03_stl_decomposition.png # STL decomposition panel (Observed, Trend, Seasonal, Residual)
-│   └── yearly_cpi_components.csv# Annual averages table
-└── policy_note/
-    └── cpi_policy_brief.md      # A 1-page professional monetary policy advice brief
+Prophet Forecasted Core CPI YoY (%):
+- Jan 2026: 4.31% (90% CI: 2.71% - 5.92%)
+- Feb 2026: 4.37% (90% CI: 2.75% - 5.95%)
+- Mar 2026: 4.36% (90% CI: 2.78% - 5.92%)
+- Apr 2026: 4.33% (90% CI: 2.66% - 5.87%)
+- May 2026: 4.31% (90% CI: 2.66% - 5.84%)
+- Jun 2026: 4.15% (90% CI: 2.61% - 5.68%)
 ```
 
 ---
 
-## 🚀 Setup & Installation
-
-### Dependencies
-Ensure you have Python 3.8+ installed. Install the required libraries using pip:
-```bash
-pip install pandas numpy matplotlib seaborn statsmodels prophet xgboost shap openpyxl
-```
-
-### Execution Flow
-Run the notebooks in the `notebooks/` folder sequentially:
-1. **[01_data_prep.ipynb](file:///notebooks/01_data_prep.ipynb)**: Cleans raw RBI files and creates the datasets.
-2. **[02_eda.ipynb](file:///notebooks/02_eda.ipynb)**: Visualizes historical trends and exports correlation structures.
-3. **[03_decomposition.ipynb](file:///notebooks/03_decomposition.ipynb)**: Performs the econometric time series analysis.
-4. **[04_ai_model.ipynb](file:///notebooks/04_ai_model.ipynb)**: Runs the ML forecasting and classification models.
+### 5. Policy Recommendations
+1. **Explicit Decomposed Inflation Communication:** The MPC should explicitly separate headline inflation in its policy statements into its supply-side (transient food/fuel) and demand-side (core trend) components. Explicitly communicating that "hikes are deployed to anchor core inflation trends, not in reaction to temporary vegetable price shocks" will help anchor market expectations and reduce transmission lags.
+2. **Core Inflation Target Anchor:** While the primary legal mandate is Headline CPI (4% $\pm$ 2%), we recommend the MPC treat the STL-decomposed Core trend as a primary decision anchor to prevent growth-destabilizing policy errors during cost-push shocks. This is a forward-looking, normative recommendation — this analysis found the misattribution pattern in Finding 2, but (per Finding 3) does not have statistical evidence confirming the MPC already follows a core-anchored rule in practice.
+3. **Exploiting Policy Space in 2026:** Given that the Prophet model projects core inflation to stabilize near the 4.15%–4.37% band, the MPC should utilize this policy window to support growth recovery, maintaining a pause on rate hikes until global demand signals shift.
 
 ---
 
-## 📈 Key Quantitative Findings
-
-* **Rate Hike Misattribution (62.5%):** Out of the 8 rate hikes executed by the MPC since October 2016, 5 hikes (62.5%) occurred during environments where food inflation exceeded core inflation. This suggests a tight historical correlation between policy hikes and transient cost-push supply shocks.
-* **Empirical Decision Rules (SHAP):** The XGBoost classification model shows that the MPC's rate hike decisions are statistically driven by **Core Inflation Lag 1 (`core_lag1`)** and **current Core Inflation (`cpi_core_yoy`)**, with mean absolute SHAP importances of `0.0514` and `0.0495` respectively. Volatile food and headline general inflation have very low directly predictive weight.
-* **Granger Causality:** Granger causality tests confirm a highly significant directional relationship, where past Core CPI YoY inflation Granger-causes Repo Rate changes at Lag 1 ($p = 0.0003$) and Lag 2 ($p = 0.0030$).
-* **Core Inflation Outlook (Jan–June 2026):** The Prophet forecasting model projects Core CPI to remain well-anchored, stabilizing between **4.15% and 4.37%** (well within the RBI's 2.0%–6.0% tolerance band), offering policy room to support post-COVID growth recovery.
-
----
-
-## 🏛️ Policy Recommendation Highlights
-Detailed recommendations can be found in the [cpi_policy_brief.md](file:///policy_note/cpi_policy_brief.md):
-1. **Explicit Decomposed Inflation Communication:** The MPC should separate headline inflation in policy announcements to explicitly state that hikes target demand-side core trends, not transient supply food shocks. This minimizes market transmission lag.
-2. **Core Inflation Anchoring:** Maintain core inflation as the primary empirical decision anchor to avoid growth contraction during supply shocks.
-3. **Supportive Policy Stance:** Utilize the projected low-inflation window in 2026 to maintain a rate pause and support structural recovery.
+### 6. Limitations of the Analysis
+1. **Small Sample Size:** The dataset contains only 60 MPC meetings since 2016 (8 of them hikes), which is not enough statistical power for a reliable classifier regardless of model choice — confirmed empirically in Finding 3 (F1 = 0.000 for XGBoost under proper walk-forward evaluation). Any classifier output here should be treated as exploratory, not decision-grade.
+2. **Non-Stationarity:** Core CPI, General CPI, and the Repo Rate are all non-stationary series. Any causal or predictive claim between them must be tested on differenced (stationary) series — the original Granger causality result reported in an earlier version of this analysis failed to do this and did not survive correction (Finding 3).
+3. **Forecast Interval Calibration:** The Prophet model's 90% confidence interval was found, via backtesting, to have only ~60% empirical coverage at a 6-month horizon — it is overconfident and should not be treated as a calibrated probability statement without further widening.
+4. **Fixed CPI Weights:** The analysis relies on 2012 base-year weights. Since consumption patterns have evolved, these weights may overstate the budget share of food in contemporary households.
+5. **Absence of Output Gap Proxy:** The feature matrix lacks a direct quarterly GDP or output gap proxy, which restricts our ability to model real-economy demand-pull dynamics.
