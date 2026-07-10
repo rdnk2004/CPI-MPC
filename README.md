@@ -32,7 +32,7 @@ Monetary policy transmission in India faces a structural challenge: the CPI bask
 #### Finding 1: Historical Inflation Epoc Heatmap Analysis
 Analysis of the monthly inflation heatmap below reveals clear cyclical patterns:
 
-![Core CPI Inflation Heatmap](../outputs/01_core_cpi_heatmap.png)
+![Core CPI Inflation Heatmap](outputs/01_core_cpi_heatmap.png)
 *Figure 1: India Core CPI YoY inflation by month and year. Green cells fall below the RBI's 4% target; red cells are elevated.*
 
 * **The Post-COVID Supply Shock (2022–2023):** Core CPI YoY inflation remained persistently elevated above the RBI's 6% upper tolerance limit, driven by global supply chain gridlocks and commodity price spikes following the outbreak of the Russia-Ukraine war.
@@ -41,7 +41,7 @@ Analysis of the monthly inflation heatmap below reveals clear cyclical patterns:
 #### Finding 2: Rate Hike Misattribution (Supply-Shock Context)
 Our misattribution analysis of the 8 historical rate hikes executed by the MPC since October 2016 reveals that:
 
-![CPI Components vs. Repo Rate](../outputs/02_cpi_vs_repo_rate.png)
+![CPI Components vs. Repo Rate](outputs/02_cpi_vs_repo_rate.png)
 *Figure 2: Headline, core, food, and fuel YoY inflation (top) against the RBI repo rate with hike/cut markers (bottom).*
 
 * **5 out of 8 hikes (62.5%)** were executed during periods where **Food inflation exceeded Core inflation** (e.g., May, June, August, and September of 2022, and February 2023). 
@@ -51,7 +51,7 @@ Our misattribution analysis of the 8 historical rate hikes executed by the MPC s
 
 **What we initially reported:** a final XGBoost model fit on all inflation indicators showed the MPC's decisions statistically driven by Core Inflation Lag 1 (`core_lag1`, mean |SHAP| = 0.0514) and current Core Inflation (`cpi_core_yoy`, mean |SHAP| = 0.0495), corroborated by a Granger causality test showing past Core CPI Granger-causing repo rate changes at Lag 1 ($p=0.0003$) and Lag 2 ($p=0.0030$).
 
-![SHAP Feature Importance](../outputs/06_shap_feature_importance.png)
+![SHAP Feature Importance](outputs/06_shap_feature_importance.png)
 *Figure 3: Mean absolute SHAP values from the final XGBoost fit. Read alongside the caveat below — this model is fit on 100% of the data and shows signs of overfitting.*
 
 **What a stricter evaluation showed:** neither result holds up as evidence of a real, generalizable relationship.
@@ -66,7 +66,7 @@ Our misattribution analysis of the 8 historical rate hikes executed by the MPC s
 ### 4. Inflation Forecasting Outlook (Jan–June 2026)
 The Prophet time series model predicts that Core CPI inflation will remain stable and well-anchored over the first half of 2026:
 
-![Prophet Core CPI Forecast](../outputs/04_prophet_forecast.png)
+![Prophet Core CPI Forecast](outputs/04_prophet_forecast.png)
 *Figure 4: 6-month Core CPI YoY forecast with 90% interval. See the calibration caveat below — this interval is wider in practice than shown.*
 
 * **Forecasted Core CPI:** Projected to hover in a tight range between **4.15% (June 2026)** and **4.37% (February 2026)**.
