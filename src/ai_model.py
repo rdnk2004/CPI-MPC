@@ -35,8 +35,10 @@ from sklearn.preprocessing import StandardScaler
 
 from src import config
 
+logging.getLogger("shap").setLevel(logging.WARNING)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
+
 
 N_SPLITS = 5
 FORECAST_HORIZON_MONTHS = 6

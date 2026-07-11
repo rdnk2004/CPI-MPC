@@ -14,10 +14,7 @@ import logging
 import numpy as np
 import pandas as pd
 
-from src import config
-import warnings
-warnings.filterwarnings("ignore", category=UserWarning, module="openpyxl")
-
+from src import config, db, validation
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
@@ -59,6 +56,9 @@ def load_and_clean_cpi(raw_file=config.CPI_RAW_FILE) -> pd.DataFrame:
     df_cpi["date"] = pd.to_datetime(df_cpi["month_str"], format="%b-%Y", errors="coerce")
     df_cpi = df_cpi.dropna(subset=["date"]).sort_values("date").reset_index(drop=True)
 
+    # Core CPI = General Index minus the weighted Food & Fuel contribution.
+    # See config.py note: this is a constant-scaled version of a properly
+    # renormalized core index, which is fine for YoY % calculations below.
     df_cpi["cpi_core"] = df_cpi["cpi_general"] - (
         df_cpi["cpi_food"] * config.FOOD_WEIGHT + df_cpi["cpi_fuel"] * config.FUEL_WEIGHT
     )
@@ -71,7 +71,13 @@ def load_and_clean_cpi(raw_file=config.CPI_RAW_FILE) -> pd.DataFrame:
 
 
 def clean_bps(val) -> float:
-    """Parse the MPC voting-decision column into a signed bps float."""
+    """Parse the MPC voting-decision column into a signed bps float.
+
+    Handles every format observed in the raw file: 'P' (pause/hold), blank,
+    '(+)25', '(-)50', bare '+'/'-' prefixed numbers, and plain numbers.
+    Anything unparseable falls back to 0.0 (treated as a hold) rather than
+    raising, since a handful of footnote rows can slip through the date filter.
+    """
     if pd.isna(val):
         return 0.0
     val_str = str(val).strip()
@@ -126,7 +132,8 @@ def load_and_clean_mpc(raw_file=config.MPC_RAW_FILE) -> pd.DataFrame:
 
 def merge_cpi_mpc(df_cpi: pd.DataFrame, df_mpc: pd.DataFrame) -> pd.DataFrame:
     """Backward as-of merge: each MPC meeting gets the most recent CPI print
-    available *at that date* -- never a future one.
+    available *at that date* -- never a future one. Adds lag/rolling features
+    used by the Stage 4 classifier.
     """
     merged = pd.merge_asof(
         df_mpc,
@@ -144,17 +151,33 @@ def merge_cpi_mpc(df_cpi: pd.DataFrame, df_mpc: pd.DataFrame) -> pd.DataFrame:
 
 
 def run() -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Run the full Stage 1 pipeline and persist outputs to data/."""
+    """Run the full Stage 1 pipeline: clean, validate, persist to CSV, and
+    (best-effort) persist to the database.
+    """
     config.DATA_DIR.mkdir(parents=True, exist_ok=True)
 
     df_cpi = load_and_clean_cpi()
+    validation.validate_cleaned_cpi(df_cpi)
     df_cpi.to_csv(config.CLEANED_CPI_FILE, index=False)
 
     df_mpc = load_and_clean_mpc()
     merged = merge_cpi_mpc(df_cpi, df_mpc)
+    validation.validate_processed_cpi_mpc(merged)
     merged.to_csv(config.PROCESSED_CPI_MPC_FILE, index=False)
 
     logger.info("Stage 1 complete. Saved %s and %s", config.CLEANED_CPI_FILE, config.PROCESSED_CPI_MPC_FILE)
+
+    # Database write is best-effort: CSVs remain the source of truth that
+    # every downstream stage actually reads, so a missing/unreachable DB
+    # (e.g. docker-compose not running locally) should not break the
+    # pipeline -- just skip the DB write and continue.
+    try:
+        engine = db.get_engine()
+        db.write_table(df_cpi, "cleaned_cpi", engine)
+        db.write_table(merged, "processed_cpi_mpc", engine)
+    except Exception as exc:
+        logger.warning("Database write skipped (%s). CSV outputs are unaffected.", exc)
+
     return df_cpi, merged
 
 

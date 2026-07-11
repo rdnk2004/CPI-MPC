@@ -1,0 +1,16 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: cpi_mpc_postgres
+    environment:
+      POSTGRES_USER: cpi_user
+      POSTGRES_PASSWORD: cpi_pass
+      POSTGRES_DB: cpi_mpc
+      POSTGRES_HOST_AUTH_METHOD: trust
+    ports:
+      - "5433:5432"
+    volumes:
+      - cpi_mpc_pgdata:/var/lib/postgresql/data
+
+volumes:
+  cpi_mpc_pgdata:
