@@ -33,12 +33,11 @@ from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_sc
 from sklearn.model_selection import TimeSeriesSplit
 from sklearn.preprocessing import StandardScaler
 
-from src import config
+from src import config, tracking
 
-logging.getLogger("shap").setLevel(logging.WARNING)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
-
+logging.getLogger("shap").setLevel(logging.WARNING)
 
 N_SPLITS = 5
 FORECAST_HORIZON_MONTHS = 6
@@ -89,6 +88,8 @@ def forecast_core_cpi(df_cpi: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]
     tail = forecast[["ds", "yhat", "yhat_lower", "yhat_upper"]].tail(FORECAST_HORIZON_MONTHS).round(2)
     logger.info("Forecasted Core CPI YoY, next %d months:\n%s", FORECAST_HORIZON_MONTHS, tail.to_string(index=False))
 
+    # Calibration check: does the 90% interval actually cover ~90% of real
+    # outcomes at a 6-month (~180 day) horizon, historically?
     perf = None
     try:
         df_cv = cross_validation(
@@ -108,8 +109,19 @@ def forecast_core_cpi(df_cpi: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]
                     "Forecast interval is overconfident at this horizon (empirical coverage %.0f%% < claimed 90%%). "
                     "Report the interval as indicative, not calibrated, in any write-up.", coverage * 100,
                 )
-    except Exception as exc:
+    except Exception as exc:  # pragma: no cover - diagnostic only, shouldn't block the pipeline
         logger.warning("Prophet cross-validation diagnostic failed (%s) -- skipping calibration check.", exc)
+
+    tracking.log_forecast_run(
+        forecast_params={
+            "yearly_seasonality": True,
+            "seasonality_mode": "additive",
+            "interval_width": 0.90,
+            "horizon_months": FORECAST_HORIZON_MONTHS,
+        },
+        calibration=perf,
+        forecast_tail=tail,
+    )
 
     return forecast, perf
 
@@ -119,7 +131,12 @@ def forecast_core_cpi(df_cpi: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]
 # --------------------------------------------------------------------------
 
 def evaluate_classifiers(df_mpc: pd.DataFrame) -> pd.DataFrame:
-    """Walk-forward evaluation of both models, reporting precision/recall/F1."""
+    """Walk-forward evaluation of both models, reporting precision/recall/F1.
+
+    Accuracy alone is misleading here: only ~14% of meetings are hikes, so a
+    model that always predicts "no hike" already scores ~87% by accuracy
+    without learning anything.
+    """
     model_df = df_mpc[config.FEATURE_COLUMNS + [config.TARGET_COLUMN]].dropna().copy()
     X = model_df[config.FEATURE_COLUMNS]
     y = model_df[config.TARGET_COLUMN]
@@ -172,6 +189,12 @@ def evaluate_classifiers(df_mpc: pd.DataFrame) -> pd.DataFrame:
             int(y.sum()),
         )
 
+    model_params = {
+        "xgboost": {"n_estimators": 50, "max_depth": 3, "learning_rate": 0.1},
+        "logistic_regression": {"class_weight": "balanced", "max_iter": 1000},
+    }
+    tracking.log_classifier_fold_runs(results, model_params)
+
     return results
 
 
@@ -180,7 +203,16 @@ def evaluate_classifiers(df_mpc: pd.DataFrame) -> pd.DataFrame:
 # --------------------------------------------------------------------------
 
 def fit_final_model_and_explain(df_mpc: pd.DataFrame, cv_results: pd.DataFrame) -> dict:
-    """Fit XGBoost on all available data and compute SHAP values."""
+    """Fit XGBoost on all available data and compute SHAP values.
+
+    NOTE: this final model is fit on 100% of the data (no held-out set), so
+    its own in-sample accuracy is not a reliability signal -- it will tend to
+    memorize a small dataset like this one. The CV results above are the
+    honest measure of predictive skill; SHAP here should be read as
+    "what does this model lean on to reproduce the historical labels",
+    which is a valid descriptive question, not evidence of a validated
+    decision rule.
+    """
     model_df = df_mpc[config.FEATURE_COLUMNS + [config.TARGET_COLUMN]].dropna().copy()
     X = model_df[config.FEATURE_COLUMNS]
     y = model_df[config.TARGET_COLUMN]
@@ -226,7 +258,8 @@ def fit_final_model_and_explain(df_mpc: pd.DataFrame, cv_results: pd.DataFrame) 
 
 
 def explain_single_decision(df_mpc: pd.DataFrame, shap_bundle: dict, decision_date: str = EXAMPLE_DECISION_DATE) -> None:
-    """Force plot for one specific MPC decision."""
+    """Force plot for one specific MPC decision, showing which features
+    pushed the model's predicted hike probability up or down."""
     X = shap_bundle["X"]
     model_df = shap_bundle["model_df"]
     pos_shap_values = shap_bundle["pos_shap_values"]
@@ -242,8 +275,8 @@ def explain_single_decision(df_mpc: pd.DataFrame, shap_bundle: dict, decision_da
 
     logger.info("Explaining decision on %s. Features:\n%s", decision_date, X.iloc[x_idx].round(2).to_string())
 
-    # shap.initjs() is only needed for the interactive JS widget in a
-    # notebook; requires IPython, and isn't needed for this static
+    # Note: shap.initjs() is only needed for the interactive JS widget in a
+    # notebook; it requires IPython and isn't needed for this static
     # matplotlib=True force plot, so it's omitted here.
     shap.force_plot(expected_val, pos_shap_values[x_idx], X.iloc[x_idx], matplotlib=True, show=False)
     plt.title(f"SHAP Force Plot: Deconstructing the {decision_date} Rate Hike Decision", fontsize=11, pad=20)
@@ -254,6 +287,7 @@ def explain_single_decision(df_mpc: pd.DataFrame, shap_bundle: dict, decision_da
 
 def run() -> dict:
     config.OUTPUTS_DIR.mkdir(parents=True, exist_ok=True)
+    tracking.init_tracking()
     df_cpi, df_mpc = load_data()
 
     forecast, calibration = forecast_core_cpi(df_cpi)

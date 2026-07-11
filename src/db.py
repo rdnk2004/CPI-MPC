@@ -13,11 +13,15 @@ import logging
 import os
 
 import pandas as pd
+from dotenv import load_dotenv
 from sqlalchemy import Engine, create_engine
+
+# Load environment variables from .env file if it exists
+load_dotenv()
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_DATABASE_URL = "postgresql+psycopg2://cpi_user:cpi_pass@localhost:5432/cpi_mpc"
+DEFAULT_DATABASE_URL = "postgresql+psycopg2://cpi_user:cpi_pass@localhost:5433/cpi_mpc"
 
 
 def get_engine() -> Engine:

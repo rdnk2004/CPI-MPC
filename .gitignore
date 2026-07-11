@@ -1,0 +1,25 @@
+# Python cache files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+
+# Local configuration / Environment variables
+.env
+
+# Docker-compose configuration
+docker-compose.yml
+
+# Output and runtime directories
+data/
+outputs/
+mlruns/
+
+# IDE files
+.vscode/
+.idea/
+
+# Database files
+*.db
+*.sqlite
