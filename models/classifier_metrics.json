@@ -1,0 +1,9 @@
+{
+  "mean_accuracy": 0.867,
+  "mean_precision": 0.0,
+  "mean_recall": 0.0,
+  "mean_f1": 0.0,
+  "n_positive_examples": 8,
+  "n_total_examples": 58,
+  "reliability_note": "This classifier shows no demonstrated predictive skill on held-out data (walk-forward F1 = 0.0 across all folds). Predictions are exploratory only and should not be treated as decision-grade."
+}
