@@ -248,6 +248,16 @@ def fit_final_model_and_explain(df_mpc: pd.DataFrame, cv_results: pd.DataFrame) 
     plt.savefig(config.OUTPUTS_DIR / "06_shap_feature_importance.png", dpi=150, bbox_inches="tight")
     plt.close()
 
+    # Save per-meeting SHAP values so downstream steps (e.g. the Phase 5 LLM
+    # rationale comparison) can look up "what drove this specific meeting's
+    # prediction" without needing to reload the model and recompute SHAP.
+    shap_df = pd.DataFrame(pos_shap_values, columns=config.FEATURE_COLUMNS, index=model_df.index)
+    shap_df.insert(0, "date", df_mpc.loc[model_df.index, "date"].values)
+    shap_df["predicted_hike_probability"] = clf_final.predict_proba(X)[:, 1]
+    shap_df["actual_decision"] = df_mpc.loc[model_df.index, "decision"].values
+    shap_df.to_csv(config.OUTPUTS_DIR / "shap_values_per_meeting.csv", index=False)
+    logger.info("Saved per-meeting SHAP values to %s", config.OUTPUTS_DIR / "shap_values_per_meeting.csv")
+
     return {
         "model": clf_final,
         "X": X,

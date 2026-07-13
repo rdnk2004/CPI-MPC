@@ -13,7 +13,6 @@ docker-compose.yml
 
 # Output and runtime directories
 data/
-outputs/
 mlruns/
 
 # IDE files
