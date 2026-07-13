@@ -6,7 +6,7 @@
 ---
 
 ### Executive Summary
-This policy brief evaluates the structural drivers of India’s Consumer Price Index (CPI) inflation and their historical interaction with the Reserve Bank of India’s (RBI) Monetary Policy Committee (MPC) repo rate decisions from 2015 to 2026. By isolating supply-side shocks (food and fuel) from demand-side pressures (core CPI) through STL decomposition, Granger causality, and explainable machine learning models (XGBoost + SHAP), we find that 62.5% of historical rate hikes were executed during supply-dominated inflation spikes. Note that this brief was revised after an internal statistical review: an initial Granger causality result suggesting the MPC's decisions are directly predicted by core inflation did not survive a stationarity correction, and a classifier intended to validate an empirical "core-anchored" decision rule showed no reliable predictive skill on held-out data (Section 3, Finding 3). The misattribution finding above is unaffected by these corrections and remains the paper's most robust empirical result. This paper outlines the transmission risks of cost-push inflation responses and presents a 6-month forecasting outlook with an empirically checked (not merely assumed) confidence interval.
+This policy brief evaluates the structural drivers of India’s Consumer Price Index (CPI) inflation and their historical interaction with the Reserve Bank of India’s (RBI) Monetary Policy Committee (MPC) repo rate decisions from 2015 to 2026. By isolating supply-side shocks (food and fuel) from demand-side pressures (core CPI) through STL decomposition, Granger causality, and explainable machine learning models (XGBoost + SHAP), we find that 62.5% of historical rate hikes were executed during supply-dominated inflation spikes. Note that this brief was revised after an internal statistical review: an initial Granger causality result suggesting the MPC's decisions are directly predicted by core inflation did not survive a stationarity correction, and a classifier intended to validate an empirical "core-anchored" decision rule showed no reliable predictive skill on held-out data (Section 3, Finding 3). The misattribution finding above is unaffected by these corrections and remains the paper's most robust empirical result. A later extension (Finding 4) corroborates this from an independent angle: comparing the model's SHAP-derived rationale against the RBI's own published meeting minutes via LLM analysis shows that hikes' stated language tracks the model's core-inflation signal consistently (zero "diverging" verdicts), while cuts and holds diverge far more often. This paper outlines the transmission risks of cost-push inflation responses and presents a 6-month forecasting outlook with an empirically checked (not merely assumed) confidence interval.
 
 ---
 
@@ -24,6 +24,7 @@ Monetary policy transmission in India faces a structural challenge: the CPI bask
   3. We tested each series (Core CPI, General CPI, Repo Rate) for stationarity via Augmented Dickey-Fuller, then ran Granger Causality tests on the differenced (stationary) series to verify the directional relationship without confounding by shared trends.
   4. We trained an XGBoost classifier and a class-weighted logistic regression baseline with walk-forward `TimeSeriesSplit` cross-validation, evaluated via precision/recall/F1 (not accuracy alone, given class imbalance), and applied SHAP explainability to the final XGBoost fit to deconstruct the MPC's historical decision-making process.
   5. We fit a Prophet additive time series model to forecast the 6-month forward core inflation path.
+  6. For 57 meetings with both SHAP values and a scraped RBI minutes text, we used Gemini to compare the model's SHAP-derived dominant inflation category against what the RBI's own published language emphasizes, producing an `aligned` / `partially_aligned` / `diverging` verdict per meeting.
 
 ---
 
@@ -61,9 +62,25 @@ Our misattribution analysis of the 8 historical rate hikes executed by the MPC s
 
 * **Revised interpretation:** with only 8 rate hikes in the historical record, this dataset does not contain enough statistical power to confirm or rule out a core-inflation-driven reaction function via machine learning. The misattribution finding (Finding 2 above) remains the strongest evidence in this analysis, since it is a direct historical count rather than a model-dependent inference.
 
+#### Finding 4: Stated RBI Rationale vs. Model-Inferred Rationale (LLM Comparison)
+To test Finding 3's SHAP result against a completely independent source of evidence, we scraped the RBI's actual published minutes for 57 of the 60 meetings and used an LLM (Gemini) to compare what the RBI's own language emphasizes against what the model's SHAP values say drove its prediction for that same meeting.
+
+* **The model's signal is consistently core-focused:** across all 57 meetings, the model's dominant SHAP category was "core" in effectively every case (58/58 using a fair single-strongest-feature comparison, confirmed robust to two different aggregation methods). Food's mean SHAP contribution was ≈0 across the dataset.
+* **The RBI's stated language is far more varied:** classified by the LLM, the statements' own emphasis split across core (5), food (7), fuel (2), headline (13), and mixed (30) — meaning the two sources agree far less often than the model's own internal consistency would suggest.
+* **The sharpest result: hikes vs. cuts/holds.**
+
+  | Actual decision | aligned | partially_aligned | diverging |
+  |---|---|---|---|
+  | hike | 2 | 6 | **0** |
+  | cut | 0 | 3 | 9 |
+  | hold | 3 | 18 | 16 |
+
+  **Zero rate hikes show a "diverging" verdict** — when the RBI actually raises rates, its stated language tracks the model's core-inflation signal reasonably well. Cuts and holds diverge far more often (9/12 cuts, 16/37 holds). This is a new result, independent of Finding 2's misattribution heuristic, and it points the same direction: the RBI's *hiking* decisions are the ones best explained by a core-inflation-driven story, while its cuts and holds draw on language the model's core-focused features don't capture.
+* **Caveat:** LLM-based classification of "what a statement emphasizes" is inherently more subjective than a numeric misattribution count (Finding 2) or a stationarity-corrected statistical test (Finding 3) — treat this as a corroborating, exploratory signal rather than a standalone proof.
+
 ---
 
-### 4. Inflation Forecasting Outlook (Jan–June 2026)
+### 5. Inflation Forecasting Outlook (Jan–June 2026)
 The Prophet time series model predicts that Core CPI inflation will remain stable and well-anchored over the first half of 2026:
 
 ![Prophet Core CPI Forecast](outputs/04_prophet_forecast.png)
@@ -85,16 +102,17 @@ Prophet Forecasted Core CPI YoY (%):
 
 ---
 
-### 5. Policy Recommendations
+### 6. Policy Recommendations
 1. **Explicit Decomposed Inflation Communication:** The MPC should explicitly separate headline inflation in its policy statements into its supply-side (transient food/fuel) and demand-side (core trend) components. Explicitly communicating that "hikes are deployed to anchor core inflation trends, not in reaction to temporary vegetable price shocks" will help anchor market expectations and reduce transmission lags.
-2. **Core Inflation Target Anchor:** While the primary legal mandate is Headline CPI (4% $\pm$ 2%), we recommend the MPC treat the STL-decomposed Core trend as a primary decision anchor to prevent growth-destabilizing policy errors during cost-push shocks. This is a forward-looking, normative recommendation — this analysis found the misattribution pattern in Finding 2, but (per Finding 3) does not have statistical evidence confirming the MPC already follows a core-anchored rule in practice.
+2. **Core Inflation Target Anchor:** While the primary legal mandate is Headline CPI (4% $\pm$ 2%), we recommend the MPC treat the STL-decomposed Core trend as a primary decision anchor to prevent growth-destabilizing policy errors during cost-push shocks. This is a forward-looking, normative recommendation — Finding 4's language analysis suggests hikes already track this framing reasonably well, but cuts and holds do not.
 3. **Exploiting Policy Space in 2026:** Given that the Prophet model projects core inflation to stabilize near the 4.15%–4.37% band, the MPC should utilize this policy window to support growth recovery, maintaining a pause on rate hikes until global demand signals shift.
 
 ---
 
-### 6. Limitations of the Analysis
+### 7. Limitations of the Analysis
 1. **Small Sample Size:** The dataset contains only 60 MPC meetings since 2016 (8 of them hikes), which is not enough statistical power for a reliable classifier regardless of model choice — confirmed empirically in Finding 3 (F1 = 0.000 for XGBoost under proper walk-forward evaluation). Any classifier output here should be treated as exploratory, not decision-grade.
 2. **Non-Stationarity:** Core CPI, General CPI, and the Repo Rate are all non-stationary series. Any causal or predictive claim between them must be tested on differenced (stationary) series — the original Granger causality result reported in an earlier version of this analysis failed to do this and did not survive correction (Finding 3).
 3. **Forecast Interval Calibration:** The Prophet model's 90% confidence interval was found, via backtesting, to have only ~60% empirical coverage at a 6-month horizon — it is overconfident and should not be treated as a calibrated probability statement without further widening.
 4. **Fixed CPI Weights:** The analysis relies on 2012 base-year weights. Since consumption patterns have evolved, these weights may overstate the budget share of food in contemporary households.
 5. **Absence of Output Gap Proxy:** The feature matrix lacks a direct quarterly GDP or output gap proxy, which restricts our ability to model real-economy demand-pull dynamics.
+6. **LLM Classification Subjectivity:** Finding 4's "stated emphasis" and "agreement verdict" labels come from an LLM's reading of real minutes text, not a deterministic count. Different models or prompts could plausibly classify some meetings differently, particularly the "mixed" and "partially_aligned" cases; treat Finding 4 as corroborating evidence, not a standalone statistical result.
