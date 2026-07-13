@@ -24,11 +24,14 @@ Run standalone:
 import json
 import logging
 import os
+import re
 import time
+from typing import Literal
 
 import pandas as pd
 from google import genai
 from google.genai import types
+from pydantic import BaseModel
 
 from src import config
 
@@ -40,9 +43,21 @@ MINUTES_INDEX_FILE = config.DATA_DIR / "mpc_minutes_index.csv"
 SHAP_VALUES_FILE = config.OUTPUTS_DIR / "shap_values_per_meeting.csv"
 COMPARISON_OUTPUT_FILE = config.OUTPUTS_DIR / "rationale_comparison.csv"
 
-GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.5-flash")
-MAX_MINUTES_CHARS = 6000  # keeps prompts a reasonable size; RBI minutes with
-                           # every member's individual statement can be very long
+GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.1-flash-lite")
+MAX_MINUTES_CHARS = 6000
+MAX_RETRIES_PER_MEETING = 5
+
+
+class RationaleComparison(BaseModel):
+    """Schema Gemini's output is constrained to -- passing this as
+    response_schema forces the SDK to return a validated object via
+    response.parsed, rather than hoping the model's raw text happens to be
+    parseable JSON (which is what caused the earlier failures: Gemini
+    occasionally embedded an unescaped quote inside a string field)."""
+    stated_rationale_summary: str
+    stated_emphasis: Literal["core", "food", "fuel", "headline", "mixed"]
+    agreement_verdict: Literal["aligned", "partially_aligned", "diverging"]
+    verdict_explanation: str
 
 FEATURE_GROUPS = {
     "core": ["cpi_core_yoy", "core_lag1", "core_lag2", "core_3m_avg"],
@@ -90,24 +105,42 @@ noise; ignore anything that isn't part of the actual policy discussion):
 {truncated}
 ---
 
-Respond ONLY with a JSON object with these exact keys:
-- "stated_rationale_summary": a 2-3 sentence PARAPHRASED summary (your own words, not quoted text) of what \
-the statement says drove this decision.
-- "stated_emphasis": one of "core", "food", "fuel", "headline", or "mixed" -- whichever the statement's own \
-language emphasizes most.
-- "agreement_verdict": one of "aligned", "partially_aligned", "diverging" -- how well the stated emphasis \
-matches the model's SHAP-derived dominant_group ("{shap_emphasis['dominant_group']}").
-- "verdict_explanation": 1-2 sentences explaining the verdict.
+Summarize what the statement says drove this decision (in your own words, not quoted text), classify \
+which inflation type its own language emphasizes most, and assess how well that matches the model's \
+SHAP-derived dominant category ("{shap_emphasis['dominant_group']}").
 """
 
 
-def call_gemini(client: genai.Client, prompt: str) -> dict:
-    response = client.models.generate_content(
-        model=GEMINI_MODEL,
-        contents=prompt,
-        config=types.GenerateContentConfig(response_mime_type="application/json"),
-    )
-    return json.loads(response.text)
+def call_gemini(client: genai.Client, prompt: str) -> RationaleComparison:
+    """Calls Gemini with a strict response_schema (guaranteed-valid output,
+    no manual JSON parsing) and retries on 429 rate-limit errors using the
+    retry delay the API itself reports, rather than a blind fixed wait.
+    """
+    for attempt in range(1, MAX_RETRIES_PER_MEETING + 1):
+        try:
+            response = client.models.generate_content(
+                model=GEMINI_MODEL,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    response_schema=RationaleComparison,
+                ),
+            )
+            return response.parsed
+        except Exception as exc:
+            is_rate_limit = "429" in str(exc) or "RESOURCE_EXHAUSTED" in str(exc)
+            if not is_rate_limit or attempt == MAX_RETRIES_PER_MEETING:
+                raise
+
+            # The API reports its own suggested wait in the error payload
+            # (e.g. "retryDelay": "30s") -- use that instead of guessing.
+            match = re.search(r"retryDelay['\"]?\s*:\s*['\"]?(\d+)", str(exc))
+            wait_seconds = int(match.group(1)) + 2 if match else 30
+            logger.warning(
+                "Rate limited (attempt %d/%d) -- waiting %ds before retrying, per the API's own retry hint.",
+                attempt, MAX_RETRIES_PER_MEETING, wait_seconds,
+            )
+            time.sleep(wait_seconds)
 
 
 def run() -> pd.DataFrame:
@@ -138,9 +171,22 @@ def run() -> pd.DataFrame:
     )
     logger.info("Found %d meetings with both SHAP values and scraped minutes text.", len(merged))
 
-    results = []
+    # Resume from a previous run instead of re-processing (and re-burning
+    # API quota on) meetings already successfully completed.
+    already_done = set()
+    existing_results = []
+    if COMPARISON_OUTPUT_FILE.exists():
+        existing_df = pd.read_csv(COMPARISON_OUTPUT_FILE)
+        already_done = set(existing_df["date"])
+        existing_results = existing_df.to_dict("records")
+        logger.info("Resuming: %d meetings already completed in a previous run, skipping those.", len(already_done))
+
+    results = list(existing_results)
     for _, row in merged.iterrows():
         date_str = row["date"].strftime("%Y-%m-%d")
+        if date_str in already_done:
+            continue
+
         minutes_path = MINUTES_DIR / f"{date_str}.txt"
         if not minutes_path.exists():
             logger.warning("No minutes text file for %s -- skipping", date_str)
@@ -157,19 +203,22 @@ def run() -> pd.DataFrame:
                 "actual_decision": row["actual_decision"],
                 "model_dominant_group": shap_emphasis["dominant_group"],
                 "model_dominant_feature": shap_emphasis["dominant_feature"],
-                **llm_result,
+                **llm_result.model_dump(),
             })
             logger.info("%s: model=%s, stated=%s, verdict=%s",
                         date_str, shap_emphasis["dominant_group"],
-                        llm_result.get("stated_emphasis"), llm_result.get("agreement_verdict"))
+                        llm_result.stated_emphasis, llm_result.agreement_verdict)
         except Exception as exc:
             logger.warning("Gemini call failed for %s (%s) -- skipping", date_str, exc)
 
-        time.sleep(1.0)  # basic rate limiting
+        # Save after every meeting, not just at the end -- so a crash or a
+        # quota cutoff partway through (as happened last run) doesn't lose
+        # progress on meetings already completed in this run.
+        pd.DataFrame(results).to_csv(COMPARISON_OUTPUT_FILE, index=False)
+        time.sleep(1.0)
 
     results_df = pd.DataFrame(results)
-    results_df.to_csv(COMPARISON_OUTPUT_FILE, index=False)
-    logger.info("Saved %d rationale comparisons to %s", len(results_df), COMPARISON_OUTPUT_FILE)
+    logger.info("Total: %d rationale comparisons saved to %s", len(results_df), COMPARISON_OUTPUT_FILE)
 
     if len(results_df):
         verdict_counts = results_df["agreement_verdict"].value_counts()
