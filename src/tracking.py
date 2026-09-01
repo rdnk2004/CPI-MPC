@@ -15,12 +15,19 @@ import logging
 import mlflow
 import pandas as pd
 
+import os
+from pathlib import Path
+
 logger = logging.getLogger(__name__)
 
 EXPERIMENT_NAME = "cpi_mpc_rate_hike_analysis"
+DEFAULT_TRACKING_URI = "sqlite:///mlflow.db"
 
 
-def init_tracking() -> None:
+def init_tracking(tracking_uri: str = DEFAULT_TRACKING_URI) -> None:
+    """Initialize MLflow tracking URI and set the active experiment."""
+    uri = os.environ.get("MLFLOW_TRACKING_URI", tracking_uri)
+    mlflow.set_tracking_uri(uri)
     mlflow.set_experiment(EXPERIMENT_NAME)
 
 
@@ -85,3 +92,66 @@ def log_forecast_run(forecast_params: dict, calibration: pd.DataFrame | None, fo
                     }
                 )
     logger.info("Logged Prophet forecast run to MLflow experiment '%s'", EXPERIMENT_NAME)
+
+
+def log_and_register_model(
+    model,
+    artifact_name: str,
+    registered_model_name: str,
+    signature=None,
+    input_example=None,
+    params: dict = None,
+    metrics: dict = None,
+    artifacts: list = None,
+    tags: dict = None,
+    alias: str = None,
+    description: str = None,
+) -> str:
+    """Log a model to MLflow, register it in the Model Registry, and set metadata."""
+    import mlflow.sklearn
+    import mlflow.xgboost
+
+    with mlflow.start_run(run_name=f"{registered_model_name}_run") as run:
+        if params:
+            mlflow.log_params(params)
+        if metrics:
+            mlflow.log_metrics(metrics)
+        if tags:
+            mlflow.set_tags(tags)
+        if artifacts:
+            for art in artifacts:
+                art_path = Path(art)
+                if art_path.exists():
+                    mlflow.log_artifact(str(art_path), artifact_path="evaluation_artifacts")
+
+        if hasattr(model, "predict_proba") and "xgboost" in str(type(model)).lower():
+            mlflow.xgboost.log_model(
+                xgb_model=model,
+                artifact_path=artifact_name,
+                signature=signature,
+                input_example=input_example,
+                registered_model_name=registered_model_name,
+            )
+        else:
+            mlflow.sklearn.log_model(
+                sk_model=model,
+                artifact_path=artifact_name,
+                signature=signature,
+                input_example=input_example,
+                registered_model_name=registered_model_name,
+            )
+
+        run_id = run.info.run_id
+
+    client = mlflow.MlflowClient()
+    if alias or description:
+        versions = client.get_latest_versions(registered_model_name)
+        if versions:
+            latest_v = versions[0].version
+            if alias:
+                client.set_registered_model_alias(registered_model_name, alias, latest_v)
+            if description:
+                client.update_model_version(registered_model_name, latest_v, description=description)
+
+    logger.info("Successfully registered model '%s' (Run ID: %s)", registered_model_name, run_id)
+    return run_id
