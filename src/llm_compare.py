@@ -76,10 +76,10 @@ def classify_shap_emphasis(row: pd.Series) -> dict:
     summing all features in a group -- summing would unfairly favor "core"
     since it has 4 features (cpi_core_yoy, core_lag1, core_lag2,
     core_3m_avg) versus 1 each for food/fuel/headline. Verified against the
-    full 57-meeting dataset that this fairer comparison still finds "core"
-    dominant in effectively every meeting (58/58) -- the result is a real
-    pattern in the model's SHAP attributions, not an artifact of how the
-    features were grouped.
+    57 text-evaluated meetings (57/57) and the full 58-meeting SHAP dataset
+    (58/58) that this fairer comparison still finds "core" dominant in 100% of
+    meetings -- the result is a real pattern in the model's SHAP attributions,
+    not an artifact of how the features were grouped.
     """
     group_max = {
         group: max(abs(row[col]) for col in cols)
